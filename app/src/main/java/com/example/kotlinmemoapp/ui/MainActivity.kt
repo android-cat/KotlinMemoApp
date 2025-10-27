@@ -3,31 +3,34 @@ package com.example.kotlinmemoapp.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.lifecycle.ViewModelProvider
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.kotlinmemoapp.R
+import com.example.kotlinmemoapp.data.model.ListItem
 import com.example.kotlinmemoapp.databinding.ActivityMainBinding
 import com.example.kotlinmemoapp.viewmodel.FolderViewModel
 import com.example.kotlinmemoapp.viewmodel.MemoViewModel
-import com.google.android.material.tabs.TabLayout
 
 /**
- * メインアクティビティ
+ * メインアクティビティ（階層構造版）
  * 
- * アプリのメイン画面を表示します。
- * - メモ一覧タブ：すべてのメモを表示・検索
- * - フォルダタブ：フォルダ一覧を表示・管理
- * タブの切り替え、検索機能、FAB による新規作成を提供します。
+ * フォルダとメモを入れ子構造で表示します。
+ * - フォルダをタップで展開/折りたたみ
+ * - メモをドラッグ&ドロップでフォルダ間を移動
+ * - 検索機能でメモを絞り込み
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var memoViewModel: MemoViewModel
     private lateinit var folderViewModel: FolderViewModel
-    private lateinit var memoAdapter: MemoAdapter
-    private lateinit var folderAdapter: FolderAdapter
-    private var currentTab = 0  // 現在選択中のタブ（0: メモ, 1: フォルダ）
+    private lateinit var hierarchicalAdapter: HierarchicalAdapter
+    
+    private val expandedFolderIds = mutableSetOf<Long>()  // 展開中のフォルダIDを記録
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,72 +45,66 @@ class MainActivity : AppCompatActivity() {
 
         // 各コンポーネントのセットアップ
         setupRecyclerView()
-        setupTabs()
+        setupDragAndDrop()
         setupSearch()
-        setupFab()
+        setupFabs()
 
-        // 初期表示としてメモ一覧を読み込み
-        loadMemos()
+        // データを読み込んで表示
+        loadHierarchicalList()
     }
 
     /**
-     * RecyclerView とアダプターをセットアップ
-     * メモとフォルダの2種類のアダプターを用意します
+     * RecyclerView と階層構造アダプターをセットアップ
      */
     private fun setupRecyclerView() {
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         
-        // メモアダプター：メモをタップしたら編集画面を開く
-        memoAdapter = MemoAdapter { memo ->
-            val intent = Intent(this, MemoEditActivity::class.java)
-            intent.putExtra("MEMO_ID", memo.id)
-            startActivity(intent)
-        }
-        
-        // フォルダアダプター：各種操作のコールバックを設定
-        folderAdapter = FolderAdapter(
-            onFolderClick = { folder ->
-                // フォルダをタップ：そのフォルダ内のメモを表示
-                memoViewModel.getMemosByFolder(folder.id).observe(this) { memos ->
-                    memoAdapter.submitList(memos)
-                    updateEmptyView(memos.isEmpty())
-                }
-                currentTab = 0
-                binding.tabLayout.selectTab(binding.tabLayout.getTabAt(0))
+        hierarchicalAdapter = HierarchicalAdapter(
+            onFolderClick = { folderItem ->
+                // フォルダをタップで展開/折りたたみ
+                toggleFolder(folderItem)
             },
-            onEditClick = { folder ->
-                // 編集ボタン：フォルダ編集ダイアログを表示
-                FolderDialogHelper.showEditFolderDialog(this, folder, folderViewModel)
+            onMemoClick = { memoItem ->
+                // メモをタップで編集画面を開く
+                val intent = Intent(this, MemoEditActivity::class.java)
+                intent.putExtra("MEMO_ID", memoItem.memo.id)
+                startActivity(intent)
             },
-            onDeleteClick = { folder ->
-                // 削除ボタン：フォルダ削除確認ダイアログを表示
-                FolderDialogHelper.showDeleteFolderDialog(this, folder, folderViewModel)
+            onFolderLongClick = { folderItem ->
+                // フォルダを長押しで編集・削除メニューを表示
+                showFolderMenu(folderItem)
+            },
+            onMemoLongClick = { memoItem ->
+                // メモを長押し（ドラッグ開始のヒント）
+                // 実際のドラッグはItemTouchHelperが処理
             }
         )
+        
+        binding.recyclerView.adapter = hierarchicalAdapter
     }
 
     /**
-     * タブレイアウトをセットアップ
-     * メモタブとフォルダタブの切り替えを処理します
+     * ドラッグ&ドロップ機能をセットアップ
      */
-    private fun setupTabs() {
-        binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab?) {
-                currentTab = tab?.position ?: 0
-                when (currentTab) {
-                    0 -> loadMemos()      // メモタブが選択された
-                    1 -> loadFolders()    // フォルダタブが選択された
-                }
-            }
-
-            override fun onTabUnselected(tab: TabLayout.Tab?) {}
-            override fun onTabReselected(tab: TabLayout.Tab?) {}
-        })
+    private fun setupDragAndDrop() {
+        val dragDropCallback = DragDropCallback(hierarchicalAdapter) { memo, newFolderId ->
+            // メモが新しいフォルダに移動された
+            val updatedMemo = memo.copy(
+                folderId = newFolderId,
+                updatedAt = System.currentTimeMillis()
+            )
+            memoViewModel.update(updatedMemo)
+            
+            // リストを再読み込み
+            loadHierarchicalList()
+        }
+        
+        val itemTouchHelper = ItemTouchHelper(dragDropCallback)
+        itemTouchHelper.attachToRecyclerView(binding.recyclerView)
     }
 
     /**
      * 検索機能をセットアップ
-     * SearchView による、メモのタイトル・内容のリアルタイム検索を実装
      */
     private fun setupSearch() {
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
@@ -116,19 +113,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
-                // メモタブでのみ検索を有効化
-                if (currentTab == 0) {
-                    if (newText.isNullOrEmpty()) {
-                        // 検索キーワードが空の場合はすべてのメモを表示
-                        loadMemos()
-                    } else {
-                        // 検索キーワードに一致するメモを表示
-                        memoViewModel.searchMemos(newText)
-                        memoViewModel.searchResults.observe(this@MainActivity) { memos ->
-                            memoAdapter.submitList(memos)
-                            updateEmptyView(memos.isEmpty())
-                        }
-                    }
+                if (newText.isNullOrEmpty()) {
+                    // 検索キーワードが空の場合は全件表示
+                    loadHierarchicalList()
+                } else {
+                    // 検索キーワードに一致するメモのみ表示
+                    searchMemos(newText)
                 }
                 return true
             }
@@ -136,50 +126,125 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * FAB（Floating Action Button）をセットアップ
-     * 現在のタブに応じて新規メモ作成またはフォルダ作成を実行
+     * FABボタンをセットアップ
      */
-    private fun setupFab() {
+    private fun setupFabs() {
+        // 新規メモ作成
         binding.fabNewMemo.setOnClickListener {
-            when (currentTab) {
-                0 -> {
-                    // メモタブ：新規メモ作成画面を開く
-                    val intent = Intent(this, MemoEditActivity::class.java)
-                    startActivity(intent)
+            val intent = Intent(this, MemoEditActivity::class.java)
+            startActivity(intent)
+        }
+        
+        // 新規フォルダ作成
+        binding.fabNewFolder.setOnClickListener {
+            FolderDialogHelper.showNewFolderDialog(this, folderViewModel)
+        }
+    }
+
+    /**
+     * フォルダとメモを階層構造でリスト表示
+     */
+    private fun loadHierarchicalList() {
+        folderViewModel.allFolders.observe(this) { folders ->
+            memoViewModel.allMemos.observe(this) { allMemos ->
+                val listItems = mutableListOf<ListItem>()
+                
+                // 各フォルダとそのメモを追加
+                folders.forEach { folder ->
+                    val folderMemos = allMemos.filter { it.folderId == folder.id }
+                    val isExpanded = expandedFolderIds.contains(folder.id)
+                    
+                    // フォルダアイテムを追加
+                    listItems.add(
+                        ListItem.FolderItem(
+                            folder = folder,
+                            memos = folderMemos,
+                            isExpanded = isExpanded
+                        )
+                    )
+                    
+                    // 展開されている場合はメモも表示
+                    if (isExpanded) {
+                        folderMemos.forEach { memo ->
+                            listItems.add(
+                                ListItem.MemoItem(
+                                    memo = memo,
+                                    isChild = true
+                                )
+                            )
+                        }
+                    }
                 }
-                1 -> {
-                    // フォルダタブ：新規フォルダ作成ダイアログを表示
-                    FolderDialogHelper.showNewFolderDialog(this, folderViewModel)
+                
+                // フォルダに属さないメモを追加
+                val uncategorizedMemos = allMemos.filter { it.folderId == null }
+                uncategorizedMemos.forEach { memo ->
+                    listItems.add(
+                        ListItem.MemoItem(
+                            memo = memo,
+                            isChild = false
+                        )
+                    )
                 }
+                
+                hierarchicalAdapter.submitList(listItems)
+                updateEmptyView(listItems.isEmpty())
             }
         }
     }
 
     /**
-     * メモ一覧を読み込んで表示
+     * メモを検索して表示
      */
-    private fun loadMemos() {
-        binding.recyclerView.adapter = memoAdapter
-        memoViewModel.allMemos.observe(this) { memos ->
-            memoAdapter.submitList(memos)
-            updateEmptyView(memos.isEmpty())
+    private fun searchMemos(query: String) {
+        memoViewModel.searchMemos(query)
+        memoViewModel.searchResults.observe(this) { memos ->
+            val listItems = memos.map { memo ->
+                ListItem.MemoItem(memo = memo, isChild = false)
+            }
+            hierarchicalAdapter.submitList(listItems)
+            updateEmptyView(listItems.isEmpty())
         }
     }
 
     /**
-     * フォルダ一覧を読み込んで表示
+     * フォルダの展開/折りたたみを切り替え
      */
-    private fun loadFolders() {
-        binding.recyclerView.adapter = folderAdapter
-        folderViewModel.allFolders.observe(this) { folders ->
-            folderAdapter.submitList(folders)
-            updateEmptyView(folders.isEmpty())
+    private fun toggleFolder(folderItem: ListItem.FolderItem) {
+        if (expandedFolderIds.contains(folderItem.folder.id)) {
+            expandedFolderIds.remove(folderItem.folder.id)
+        } else {
+            expandedFolderIds.add(folderItem.folder.id)
         }
+        loadHierarchicalList()
+    }
+
+    /**
+     * フォルダのメニューを表示（編集・削除）
+     */
+    private fun showFolderMenu(folderItem: ListItem.FolderItem) {
+        val options = arrayOf("編集", "削除")
+        AlertDialog.Builder(this)
+            .setTitle(folderItem.folder.name)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> FolderDialogHelper.showEditFolderDialog(
+                        this,
+                        folderItem.folder,
+                        folderViewModel
+                    )
+                    1 -> FolderDialogHelper.showDeleteFolderDialog(
+                        this,
+                        folderItem.folder,
+                        folderViewModel
+                    )
+                }
+            }
+            .show()
     }
 
     /**
      * 空の状態表示を更新
-     * @param isEmpty リストが空かどうか
      */
     private fun updateEmptyView(isEmpty: Boolean) {
         if (isEmpty) {
@@ -196,9 +261,6 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onResume() {
         super.onResume()
-        when (currentTab) {
-            0 -> loadMemos()
-            1 -> loadFolders()
-        }
+        loadHierarchicalList()
     }
 }
