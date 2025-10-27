@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kotlin Memo App</string>
+    <string name="memo_list_title">メモ一覧</string>
+    <string name="folder_list_title">フォルダ一覧</string>
+    <string name="new_memo">新規メモ</string>
+    <string name="edit_memo">メモを編集</string>
+    <string name="save">保存</string>
+    <string name="delete">削除</string>
+    <string name="cancel">キャンセル</string>
+    <string name="memo_title">タイトル</string>
+    <string name="memo_content">内容</string>
+    <string name="memo_title_hint">メモのタイトルを入力</string>
+    <string name="memo_content_hint">メモの内容を入力</string>
+    <string name="search">検索</string>
+    <string name="search_hint">メモを検索</string>
+    <string name="no_memos">メモがありません</string>
+    <string name="no_folders">フォルダがありません</string>
+    <string name="folders">フォルダ</string>
+    <string name="new_folder">新規フォルダ</string>
+    <string name="folder_name">フォルダ名</string>
+    <string name="folder_name_hint">フォルダ名を入力</string>
+    <string name="edit_folder">フォルダを編集</string>
+    <string name="delete_confirmation">削除しますか？</string>
+    <string name="delete_memo_message">このメモを削除しますか？</string>
+    <string name="delete_folder_message">このフォルダを削除しますか？フォルダ内のメモも削除されます。</string>
+    <string name="yes">はい</string>
+    <string name="no">いいえ</string>
+    <string name="select_folder">フォルダを選択</string>
+    <string name="no_folder">フォルダなし</string>
+    <string name="all_memos">すべてのメモ</string>
+</resources>
