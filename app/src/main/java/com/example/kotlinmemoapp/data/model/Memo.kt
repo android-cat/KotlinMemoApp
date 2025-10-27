@@ -5,6 +5,19 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/**
+ * メモエンティティクラス
+ * 
+ * Room データベースの "memos" テーブルを表現します。
+ * フォルダとの外部キー制約により、フォルダ削除時に関連メモも削除されます（CASCADE）。
+ * 
+ * @property id メモの一意識別子（自動生成）
+ * @property title メモのタイトル
+ * @property content メモの本文内容
+ * @property folderId 所属するフォルダのID（未分類の場合はnull）
+ * @property createdAt メモの作成日時（UNIXタイムスタンプ）
+ * @property updatedAt メモの最終更新日時（UNIXタイムスタンプ）
+ */
 @Entity(
     tableName = "memos",
     foreignKeys = [
@@ -12,10 +25,10 @@ import androidx.room.PrimaryKey
             entity = Folder::class,
             parentColumns = ["id"],
             childColumns = ["folderId"],
-            onDelete = ForeignKey.CASCADE
+            onDelete = ForeignKey.CASCADE  // フォルダ削除時にメモも削除
         )
     ],
-    indices = [Index("folderId")]
+    indices = [Index("folderId")]  // フォルダIDにインデックスを作成してクエリを高速化
 )
 data class Memo(
     @PrimaryKey(autoGenerate = true)
